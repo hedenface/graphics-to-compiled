@@ -45,10 +45,11 @@
 #define rtrim(str) \
         do { \
             int rtrim_i = strlen(str); \
-            for (; rtrim_i >= 0; rtrim_i--) { \
-                if (isspace(str[rtrim_i])) { \
-                    str[rtrim_i] = '\0'; \
+            for (; rtrim_i > 0; rtrim_i--) { \
+                if (!isspace(str[rtrim_i - 1])) { \
+                    break; \
                 } \
+                str[rtrim_i - 1] = '\0'; \
             } \
         } while (0)
 
@@ -75,6 +76,10 @@ typedef struct resource_info_t {
     int transparency;
     unsigned char transparency_rgb[3];
     void * data;
+    char * tab;
+    char * array_type;
+    char * array_name;
+    int bytes_per_line;
 } resource_info;
 
 int file_exists(char * file)
@@ -178,6 +183,40 @@ void parse_info_line(resource_info * info, char * line)
 
         return;
     }
+
+    if (key_eq("type") || key_eq("array_type")) {
+        free(info->array_type);
+        info->array_type = strdup(value);
+        return;
+    }
+
+    if (key_eq("name") || key_eq("array_name")) {
+        free(info->array_name);
+        info->array_name = strdup(value);
+        return;
+    }
+
+    if (key_eq("bytes") || key_eq("bytes_per_line")) {
+        info->bytes_per_line = atoi(value);
+        if (info->bytes_per_line < 1) {
+            info->bytes_per_line = 1;
+        }
+        return;
+    }
+
+    if (key_eq("tab")) {
+        /* this is whacky, but we don't really care what it's wrapped in
+           after it gets trimmed. take a value of `"   "` - this needs
+           to be three spaces. but we don't care if it's `[   ]` or `'   '`
+           either. so we increment the start by 1, and null term length - 1
+           to speed things up (again, because we don't care */
+        size_t len = strlen(value);
+        value[len - 1] = '\0';
+        value++;
+        free(info->tab);
+        info->tab = strdup(value);
+        return;
+    }
 }
 
 void parse_info(resource_info * info, char * file_info, char * file_bmp)
@@ -244,6 +283,36 @@ unsigned char * parse_bmp(resource_info * info, char * file_bmp)
     return data;
 }
 
+void print_resource(resource_info * info, unsigned char * data)
+{
+    int i = 0;
+
+    printf("%s %s[%d] = {\n", info->array_type, info->array_name, info->width * info->height * 4);
+
+    printf("%s", info->tab);
+    for (i = 0; i < info->width * info->height * 4; i++) {
+        printf("0x%02x", data[i]);
+
+        if (i < (info->width * info->height * 4) - 1) {
+            printf("%s", ", ");
+
+            if ((i + 1) % info->bytes_per_line == 0) {
+                printf("%s%s", "\n", info->tab);
+            }
+        }
+    }
+
+    printf("\n%s\n", "};");
+}
+
+void set_resource_defaults(resource_info * info)
+{
+    info->tab = strdup("    ");
+    info->array_type = strdup("unsigned char");
+    info->array_name = strdup("array");
+    info->bytes_per_line = 16;
+}
+
 int main(int argc, char const *argv[])
 {
     resource_info * info = NULL;
@@ -252,6 +321,7 @@ int main(int argc, char const *argv[])
     char * file_info = NULL;
 
     _calloc(info, 1, sizeof(resource_info));
+    set_resource_defaults(info);
 
     check_args(argc, argv[0]);
     file_bmp = check_file(argv[1], ".bmp");
@@ -260,7 +330,12 @@ int main(int argc, char const *argv[])
     parse_info(info, file_info, file_bmp);
     data = parse_bmp(info, file_bmp);
 
+    print_resource(info, data);
+
     free(data);
+    free(info->tab);
+    free(info->array_name);
+    free(info->array_type);
     free(info);
     free(file_bmp);
     free(file_info);

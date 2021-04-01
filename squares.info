@@ -2,3 +2,4 @@ transparency = true
 transparency_red = 0xff
 transparency_blue = 0xff
 transparency_green = 0xff
+tab = "  "
